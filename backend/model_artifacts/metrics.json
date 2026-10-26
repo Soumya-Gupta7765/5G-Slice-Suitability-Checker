@@ -1,0 +1,141 @@
+{
+  "dataset_source": "electricsheepafrica/africa-synth-telecom-fifth-generation-network-slicing-nigeria",
+  "dataset_note": "Synthetic 5G network slicing data from Electric Sheep Africa catalog. Labels represent simulated slice assignments, not verified real-world optimal allocations.",
+  "total_rows_used": 300000,
+  "num_features": 6,
+  "feature_names": [
+    "use_case",
+    "throughput_mbps",
+    "latency_ms",
+    "reliability_percent",
+    "active_connections",
+    "bandwidth_allocated_mhz"
+  ],
+  "numeric_features": [
+    "throughput_mbps",
+    "latency_ms",
+    "reliability_percent",
+    "active_connections",
+    "bandwidth_allocated_mhz"
+  ],
+  "categorical_features": [
+    "use_case"
+  ],
+  "target_column": "slice_type",
+  "class_names": [
+    "embb",
+    "mmtc",
+    "urllc"
+  ],
+  "split_sizes": {
+    "train": 210000,
+    "validation": 45000,
+    "test": 45000
+  },
+  "class_distribution": {
+    "embb": 100553,
+    "mmtc": 99441,
+    "urllc": 100006
+  },
+  "validation_metrics": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0
+  },
+  "test_metrics": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "per_class_precision": {
+      "embb": 1.0,
+      "mmtc": 1.0,
+      "urllc": 1.0
+    },
+    "per_class_recall": {
+      "embb": 1.0,
+      "mmtc": 1.0,
+      "urllc": 1.0
+    },
+    "confusion_matrix": [
+      [
+        15083,
+        0,
+        0
+      ],
+      [
+        0,
+        14916,
+        0
+      ],
+      [
+        0,
+        0,
+        15001
+      ]
+    ]
+  },
+  "feature_importance": {
+    "throughput_mbps": 0.3541,
+    "latency_ms": 0.3457,
+    "reliability_percent": 0.1764,
+    "active_connections": 0.0923,
+    "use_case": 0.0314,
+    "bandwidth_allocated_mhz": 0.0
+  },
+  "model_params": {
+    "n_estimators": 200,
+    "max_depth": 20,
+    "min_samples_split": 5,
+    "min_samples_leaf": 2,
+    "max_features": "sqrt",
+    "class_weight": "balanced",
+    "random_seed": 42
+  },
+  "training_time_seconds": 6.07,
+  "model_version": "1.0.0",
+  "trained_at": "2026-10-26T15:27:22Z",
+  "feature_ranges": {
+    "throughput_mbps": {
+      "min": 0.1,
+      "max": 999.98,
+      "mean": 204.20745973333328,
+      "std": 288.8607745748991
+    },
+    "latency_ms": {
+      "min": 1.0,
+      "max": 200.0,
+      "mean": 50.0256816,
+      "std": 58.88468434017106
+    },
+    "reliability_percent": {
+      "min": 90.0,
+      "max": 99.999,
+      "mean": 97.30141792333332,
+      "std": 2.806318315674777
+    },
+    "active_connections": {
+      "min": 1.0,
+      "max": 1000.0,
+      "mean": 200.98443666666665,
+      "std": 270.718757144632
+    },
+    "bandwidth_allocated_mhz": {
+      "min": 20.0,
+      "max": 100.0,
+      "mean": 60.01004,
+      "std": 23.366043719574428
+    }
+  },
+  "use_case_values": [
+    "4k_video",
+    "agriculture",
+    "ar_vr",
+    "autonomous_vehicles",
+    "cloud_gaming",
+    "environmental_monitoring",
+    "industrial_automation",
+    "iot_sensors",
+    "remote_surgery",
+    "smart_city",
+    "smart_grid",
+    "video_streaming"
+  ]
+}
