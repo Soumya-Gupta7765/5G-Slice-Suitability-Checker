@@ -4,9 +4,9 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { api, type ModelInfo } from '../api'
 
 const SLICE_COLORS: Record<string, string> = {
-  URLLC: '#dc2626',
-  eMBB: '#2563eb',
-  mMTC: '#059669',
+  URLLC: '#ff3b30',
+  eMBB: '#007aff',
+  mMTC: '#30d158',
 }
 
 export default function DashboardPage() {
@@ -23,21 +23,21 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="loading-overlay">
-        <div className="spinner" style={{ width: 32, height: 32 }} />
-        <span>Loading model metrics...</span>
+      <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--muted)' }}>
+        <div className="spinner" style={{ width: 32, height: 32, margin: '0 auto 16px', border: '2px solid rgba(255, 255, 255, 0.2)', borderTopColor: '#ffffff', borderRadius: '50%' }} />
+        <span>Loading model evaluation telemetry...</span>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="card" style={{ maxWidth: 600, margin: '0 auto' }}>
+      <div className="card" style={{ maxWidth: 640, margin: '40px auto' }}>
         <div className="alert alert-error">
           <AlertTriangle size={18} />
           <div>
-            <strong>Cannot load model information:</strong> {error}
-            <br />Ensure the backend is running and the model has been trained.
+            <strong>Unable to load model metadata:</strong> {error}
+            <br />Verify that the backend is active and the model pipeline has been trained.
           </div>
         </div>
       </div>
@@ -60,13 +60,13 @@ export default function DashboardPage() {
     <div>
       {/* Header */}
       <div className="card section-gap">
-        <div className="card-header" style={{ marginBottom: 12 }}>
-          <div className="card-icon" style={{ background: 'var(--green-100)', color: 'var(--green-600)' }}>
+        <div className="card-header" style={{ marginBottom: 16 }}>
+          <div className="card-icon" style={{ borderColor: 'rgba(255, 255, 255, 0.2)', color: '#ffffff' }}>
             <BarChart3 size={18} />
           </div>
           <div>
             <div className="card-title">Model Evaluation Dashboard</div>
-            <div className="card-subtitle">Training results and performance metrics</div>
+            <div className="card-subtitle">Random Forest architecture, validation metrics, and dataset distribution</div>
           </div>
           <div style={{ marginLeft: 'auto' }}>
             <span className="slice-badge mmtc">v{info.model_version}</span>
@@ -76,53 +76,65 @@ export default function DashboardPage() {
         <div className="alert alert-info">
           <Database size={16} style={{ flexShrink: 0 }} />
           <div>
-            <strong>Dataset:</strong> {info.dataset_source}<br />
-            <span style={{ fontSize: 12 }}>{info.dataset_note}</span>
+            <strong>Dataset Source:</strong> {info.dataset_source}<br />
+            <span style={{ fontSize: 12, opacity: 0.85 }}>{info.dataset_note}</span>
           </div>
         </div>
       </div>
 
       {/* Summary Stats */}
       <div className="grid-4 section-gap">
-        <div className="card stat-card">
-          <div className="stat-value">{info.total_rows_used.toLocaleString()}</div>
-          <div className="stat-label">Rows Used</div>
+        <div className="card" style={{ textAlign: 'center', padding: '20px' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.03em' }}>
+            {info.total_rows_used.toLocaleString()}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Dataset Records
+          </div>
         </div>
-        <div className="card stat-card">
-          <div className="stat-value">{info.num_features}</div>
-          <div className="stat-label">Input Features</div>
+        <div className="card" style={{ textAlign: 'center', padding: '20px' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.03em' }}>
+            {info.num_features}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Input Features
+          </div>
         </div>
-        <div className="card stat-card">
-          <div className="stat-value" style={{ color: 'var(--green-600)' }}>
+        <div className="card" style={{ textAlign: 'center', padding: '20px' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--mmtc-color)', letterSpacing: '-0.03em' }}>
             {(info.test_metrics.accuracy * 100).toFixed(1)}%
           </div>
-          <div className="stat-label">Test Accuracy</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Test Accuracy
+          </div>
         </div>
-        <div className="card stat-card">
-          <div className="stat-value" style={{ color: 'var(--accent)' }}>
+        <div className="card" style={{ textAlign: 'center', padding: '20px' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--embb-color)', letterSpacing: '-0.03em' }}>
             {(info.test_metrics.macro_f1 * 100).toFixed(1)}%
           </div>
-          <div className="stat-label">Macro F1</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Macro F1 Score
+          </div>
         </div>
       </div>
 
       {/* Split & Training Info */}
       <div className="grid-2 section-gap">
         <div className="card">
-          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: 'var(--navy-800)' }}>
-            <FlaskConical size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
-            Data Split
+          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: '#ffffff', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FlaskConical size={16} />
+            <span>Dataset Partitioning</span>
           </h3>
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
             <tbody>
               {[
-                ['Training', info.split_sizes.train],
-                ['Validation', info.split_sizes.validation],
-                ['Test', info.split_sizes.test],
+                ['Training Split (70%)', info.split_sizes.train],
+                ['Validation Split (15%)', info.split_sizes.validation],
+                ['Held-Out Test Split (15%)', info.split_sizes.test],
               ].map(([label, count]) => (
-                <tr key={String(label)} style={{ borderBottom: '1px solid var(--gray-100)' }}>
-                  <td style={{ padding: '8px 0', fontWeight: 500 }}>{label}</td>
-                  <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
+                <tr key={String(label)} style={{ borderBottom: '1px solid var(--border-soft)' }}>
+                  <td style={{ padding: '10px 0', fontWeight: 500, color: '#ffffff' }}>{label}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--muted)' }}>
                     {Number(count).toLocaleString()} ({((Number(count) / info.total_rows_used) * 100).toFixed(1)}%)
                   </td>
                 </tr>
@@ -130,52 +142,52 @@ export default function DashboardPage() {
             </tbody>
           </table>
 
-          <div style={{ marginTop: 16 }}>
-            <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Model Parameters</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', fontSize: 12 }}>
+          <div style={{ marginTop: 20 }}>
+            <h4 style={{ fontSize: 13, fontWeight: 600, color: '#ffffff', marginBottom: 10 }}>Hyperparameters</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: 12 }}>
               {Object.entries(info.model_params).map(([key, val]) => (
-                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid var(--gray-50)' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>{key.replace(/_/g, ' ')}</span>
-                  <span style={{ fontWeight: 500 }}>{String(val)}</span>
+                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                  <span style={{ color: 'var(--muted)' }}>{key.replace(/_/g, ' ')}</span>
+                  <span style={{ fontWeight: 500, color: '#ffffff' }}>{String(val)}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          <div style={{ marginTop: 12, display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-muted)' }}>
+          <div style={{ marginTop: 16, display: 'flex', gap: 16, fontSize: 12, color: 'var(--muted)' }}>
             <span><Clock size={12} style={{ verticalAlign: -2 }} /> Trained: {new Date(info.trained_at).toLocaleString()}</span>
-            <span>⏱ {info.training_time_seconds}s</span>
+            <span>⏱ Elapsed: {info.training_time_seconds}s</span>
           </div>
         </div>
 
         {/* Per-Class Metrics */}
         <div className="card">
-          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: 'var(--navy-800)' }}>
-            <CheckCircle2 size={16} style={{ verticalAlign: -2, marginRight: 6 }} />
-            Per-Class Metrics
+          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: '#ffffff', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CheckCircle2 size={16} />
+            <span>Per-Class Classification Metrics</span>
           </h3>
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '2px solid var(--border-color)' }}>
-                <th style={{ textAlign: 'left', padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 600 }}>Class</th>
-                <th style={{ textAlign: 'right', padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 600 }}>Precision</th>
-                <th style={{ textAlign: 'right', padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 600 }}>Recall</th>
-                <th style={{ textAlign: 'right', padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 600 }}>Count</th>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <th style={{ textAlign: 'left', padding: '8px 0', color: 'var(--muted)', fontWeight: 500 }}>Slice</th>
+                <th style={{ textAlign: 'right', padding: '8px 0', color: 'var(--muted)', fontWeight: 500 }}>Precision</th>
+                <th style={{ textAlign: 'right', padding: '8px 0', color: 'var(--muted)', fontWeight: 500 }}>Recall</th>
+                <th style={{ textAlign: 'right', padding: '8px 0', color: 'var(--muted)', fontWeight: 500 }}>Support</th>
               </tr>
             </thead>
             <tbody>
               {info.class_names.map(cls => (
-                <tr key={cls} style={{ borderBottom: '1px solid var(--gray-100)' }}>
-                  <td style={{ padding: '8px 0' }}>
+                <tr key={cls} style={{ borderBottom: '1px solid var(--border-soft)' }}>
+                  <td style={{ padding: '10px 0' }}>
                     <span className={`slice-badge ${cls.toLowerCase()}`} style={{ fontSize: 11 }}>{cls}</span>
                   </td>
-                  <td style={{ textAlign: 'right', fontWeight: 500 }}>
+                  <td style={{ textAlign: 'right', fontWeight: 500, color: '#ffffff' }}>
                     {(info.test_metrics.per_class_precision[cls] * 100).toFixed(1)}%
                   </td>
-                  <td style={{ textAlign: 'right', fontWeight: 500 }}>
+                  <td style={{ textAlign: 'right', fontWeight: 500, color: '#ffffff' }}>
                     {(info.test_metrics.per_class_recall[cls] * 100).toFixed(1)}%
                   </td>
-                  <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
+                  <td style={{ textAlign: 'right', color: 'var(--muted)' }}>
                     {info.class_distribution[cls]?.toLocaleString()}
                   </td>
                 </tr>
@@ -184,20 +196,33 @@ export default function DashboardPage() {
           </table>
 
           {/* Confusion Matrix */}
-          <h4 style={{ fontSize: 13, fontWeight: 600, marginTop: 20, marginBottom: 8 }}>Confusion Matrix</h4>
-          <table className="confusion-matrix">
+          <h4 style={{ fontSize: 13, fontWeight: 600, marginTop: 22, marginBottom: 10, color: '#ffffff' }}>
+            Confusion Matrix (45,000 Test Records)
+          </h4>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: 12 }}>
             <thead>
               <tr>
-                <th></th>
-                {info.class_names.map(c => <th key={c}>{c}</th>)}
+                <th style={{ padding: '6px', color: 'var(--muted)' }}></th>
+                {info.class_names.map(c => (
+                  <th key={c} style={{ padding: '6px', color: 'var(--muted)' }}>{c}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {info.class_names.map((cls, i) => (
                 <tr key={cls}>
-                  <th>{cls}</th>
+                  <th style={{ padding: '6px', color: 'var(--muted)', textAlign: 'left' }}>{cls}</th>
                   {info.test_metrics.confusion_matrix[i].map((val, j) => (
-                    <td key={j} className={i === j ? 'cm-diagonal' : ''}>
+                    <td
+                      key={j}
+                      style={{
+                        padding: '8px',
+                        background: i === j ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                        border: '1px solid var(--border-soft)',
+                        color: i === j ? '#ffffff' : 'var(--muted)',
+                        fontWeight: i === j ? 600 : 400,
+                      }}
+                    >
                       {val.toLocaleString()}
                     </td>
                   ))}
@@ -205,7 +230,9 @@ export default function DashboardPage() {
               ))}
             </tbody>
           </table>
-          <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', marginTop: 4 }}>Rows = Actual, Columns = Predicted</p>
+          <p style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginTop: 8 }}>
+            Rows = True Slice, Columns = Predicted Slice
+          </p>
         </div>
       </div>
 
@@ -213,30 +240,40 @@ export default function DashboardPage() {
       <div className="grid-2 section-gap">
         {/* Feature Importance */}
         <div className="card">
-          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: 'var(--navy-800)' }}>Feature Importance (%)</h3>
-          <ResponsiveContainer width="100%" height={250}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: '#ffffff' }}>
+            Global Feature Importance (%)
+          </h3>
+          <ResponsiveContainer width="100%" height={260}>
             <BarChart data={featureData} layout="vertical" margin={{ left: 80, right: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis type="number" fontSize={12} tickLine={false} />
-              <YAxis dataKey="name" type="category" fontSize={12} tickLine={false} width={100} />
-              <Tooltip formatter={(v: any) => `${v}%`} />
-              <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.06)" />
+              <XAxis type="number" fontSize={12} stroke="var(--muted)" tickLine={false} />
+              <YAxis dataKey="name" type="category" fontSize={12} stroke="var(--muted)" tickLine={false} width={110} />
+              <Tooltip
+                contentStyle={{ background: '#111111', borderColor: 'rgba(255, 255, 255, 0.2)', borderRadius: 8, color: '#ffffff' }}
+                formatter={(v: any) => [`${v}%`, 'Importance']}
+              />
+              <Bar dataKey="value" fill="#ffffff" radius={[0, 4, 4, 0]} barSize={18} />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
         {/* Class Distribution */}
         <div className="card">
-          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: 'var(--navy-800)' }}>Class Distribution</h3>
-          <ResponsiveContainer width="100%" height={250}>
+          <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: '#ffffff' }}>
+            Class Distribution in Dataset
+          </h3>
+          <ResponsiveContainer width="100%" height={260}>
             <BarChart data={classDistData} margin={{ left: 20, right: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="name" fontSize={12} tickLine={false} />
-              <YAxis fontSize={12} tickLine={false} tickFormatter={(v: any) => `${(Number(v || 0) / 1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v: any) => Number(v || 0).toLocaleString()} />
-              <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={48}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.06)" />
+              <XAxis dataKey="name" fontSize={12} stroke="var(--muted)" tickLine={false} />
+              <YAxis fontSize={12} stroke="var(--muted)" tickLine={false} tickFormatter={(v: any) => `${(Number(v || 0) / 1000).toFixed(0)}k`} />
+              <Tooltip
+                contentStyle={{ background: '#111111', borderColor: 'rgba(255, 255, 255, 0.2)', borderRadius: 8, color: '#ffffff' }}
+                formatter={(v: any) => [Number(v || 0).toLocaleString(), 'Samples']}
+              />
+              <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={44}>
                 {classDistData.map((entry) => (
-                  <Cell key={entry.name} fill={SLICE_COLORS[entry.name] || '#3b82f6'} />
+                  <Cell key={entry.name} fill={SLICE_COLORS[entry.name] || '#ffffff'} />
                 ))}
               </Bar>
             </BarChart>
@@ -246,26 +283,28 @@ export default function DashboardPage() {
 
       {/* Feature Ranges */}
       <div className="card">
-        <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: 'var(--navy-800)' }}>Feature Ranges (Training Data)</h3>
+        <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: '#ffffff' }}>
+          Feature Bounds (Standardization & Training References)
+        </h3>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '2px solid var(--border-color)' }}>
-                <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-secondary)' }}>Feature</th>
-                <th style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--text-secondary)' }}>Min</th>
-                <th style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--text-secondary)' }}>Max</th>
-                <th style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--text-secondary)' }}>Mean</th>
-                <th style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--text-secondary)' }}>Std Dev</th>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <th style={{ textAlign: 'left', padding: '10px 14px', color: 'var(--muted)' }}>Feature</th>
+                <th style={{ textAlign: 'right', padding: '10px 14px', color: 'var(--muted)' }}>Min</th>
+                <th style={{ textAlign: 'right', padding: '10px 14px', color: 'var(--muted)' }}>Max</th>
+                <th style={{ textAlign: 'right', padding: '10px 14px', color: 'var(--muted)' }}>Mean</th>
+                <th style={{ textAlign: 'right', padding: '10px 14px', color: 'var(--muted)' }}>Std Dev</th>
               </tr>
             </thead>
             <tbody>
               {Object.entries(info.feature_ranges).map(([feat, r]) => (
-                <tr key={feat} style={{ borderBottom: '1px solid var(--gray-100)' }}>
-                  <td style={{ padding: '8px 12px', fontWeight: 500 }}>{feat.replace(/_/g, ' ')}</td>
-                  <td style={{ textAlign: 'right', padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{r.min.toFixed(2)}</td>
-                  <td style={{ textAlign: 'right', padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{r.max.toFixed(2)}</td>
-                  <td style={{ textAlign: 'right', padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{r.mean.toFixed(2)}</td>
-                  <td style={{ textAlign: 'right', padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{r.std.toFixed(2)}</td>
+                <tr key={feat} style={{ borderBottom: '1px solid var(--border-soft)' }}>
+                  <td style={{ padding: '10px 14px', fontWeight: 500, color: '#ffffff' }}>{feat.replace(/_/g, ' ')}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: 'var(--stat)' }}>{r.min.toFixed(2)}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: 'var(--stat)' }}>{r.max.toFixed(2)}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: 'var(--stat)' }}>{r.mean.toFixed(2)}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: 'var(--stat)' }}>{r.std.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
