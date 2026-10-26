@@ -252,8 +252,12 @@ The model assigned {predicted_slice} a score of {probabilities.get(predicted_sli
 
 
 # ── API Endpoints ──────────────────────────────────────────────────────────────
+from fastapi import APIRouter
 
-@app.get("/api/health")
+api_router = APIRouter()
+
+
+@api_router.get("/health")
 async def health():
     api_key, _, _ = get_llm_config()
     return {
@@ -263,14 +267,14 @@ async def health():
     }
 
 
-@app.post("/api/set-api-key")
+@api_router.post("/set-api-key")
 async def set_api_key(req: SetApiKeyRequest):
     global QUALCOMM_API_KEY
     QUALCOMM_API_KEY = req.api_key.strip()
     return {"success": True, "llm_configured": bool(QUALCOMM_API_KEY)}
 
 
-@app.get("/api/model-info")
+@api_router.get("/model-info")
 async def model_info():
     """Return model metadata and evaluation metrics with normalized class names."""
     if metrics is None:
@@ -295,7 +299,7 @@ async def model_info():
     return info
 
 
-@app.get("/api/feature-schema")
+@api_router.get("/feature-schema")
 async def feature_schema():
     """Return the feature schema for the frontend form."""
     if metrics is None:
@@ -311,7 +315,7 @@ async def feature_schema():
     }
 
 
-@app.post("/api/predict")
+@api_router.post("/predict")
 async def predict(request: PredictionRequest):
     """Run prediction through the trained Random Forest model."""
     if pipeline is None or label_encoder is None:
@@ -437,7 +441,7 @@ Please explain this prediction in plain English following these rules:
     }
 
 
-@app.post("/api/extract-requirements")
+@api_router.post("/extract-requirements")
 async def extract_requirements(request: NLPExtractionRequest):
     """Use LLM to extract structured requirements from natural language."""
     api_key, _, _ = get_llm_config()
@@ -587,7 +591,7 @@ confidence_notes: (notes on estimates)"""
     }
 
 
-@app.post("/api/what-if")
+@api_router.post("/what-if")
 async def what_if(request: WhatIfRequest):
     """Compare predictions between original and modified inputs."""
     if pipeline is None or label_encoder is None:
@@ -672,7 +676,7 @@ Be concise and practical. Format in markdown."""
     }
 
 
-@app.post("/api/explain")
+@api_router.post("/explain")
 async def explain(request: ExplanationRequest):
     """Generate or regenerate an explanation for a prediction."""
     explanation = None
@@ -705,6 +709,11 @@ Provide a clear, plain-English explanation in markdown. Never override the predi
         )
 
     return {"explanation": explanation, "llm_used": llm_used}
+
+
+# Mount API router both with and without /api prefix
+app.include_router(api_router, prefix="/api")
+app.include_router(api_router)
 
 
 if __name__ == "__main__":
