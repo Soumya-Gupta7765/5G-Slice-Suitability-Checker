@@ -1,28 +1,14 @@
 import { useState, useEffect } from 'react'
 import { Routes, Route, NavLink, Link, useLocation } from 'react-router-dom'
-import { Radio, BarChart3, SlidersHorizontal, Info, Sparkles, Key, X, Check, ExternalLink } from 'lucide-react'
+import { Radio, SlidersHorizontal, Info } from 'lucide-react'
 import PredictPage from './pages/PredictPage'
-import DashboardPage from './pages/DashboardPage'
 import WhatIfPage from './pages/WhatIfPage'
 import AboutPage from './pages/AboutPage'
-import { api } from './api'
+import { ParticleWave } from './components/ui/particle-wave'
 
 function App() {
-  const [llmConfigured, setLlmConfigured] = useState(false)
-  const [showKeyModal, setShowKeyModal] = useState(false)
-  const [inputKey, setInputKey] = useState('')
-  const [savingKey, setSavingKey] = useState(false)
-  const [saveSuccess, setSaveSuccess] = useState(false)
-  const [saveError, setSaveError] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
-
-  // Check health and LLM config
-  useEffect(() => {
-    api.health()
-      .then(res => setLlmConfigured(res.llm_configured))
-      .catch(() => setLlmConfigured(false))
-  }, [])
 
   // Close menu on route change
   useEffect(() => {
@@ -95,33 +81,10 @@ function App() {
     })
   }
 
-  const handleSaveKey = async () => {
-    if (!inputKey.trim()) return
-    setSavingKey(true)
-    setSaveError('')
-    try {
-      const res = await api.setApiKey(inputKey.trim())
-      if (res.llm_configured) {
-        setLlmConfigured(true)
-        setSaveSuccess(true)
-        setTimeout(() => {
-          setShowKeyModal(false)
-          setSaveSuccess(false)
-          setInputKey('')
-        }, 1200)
-      } else {
-        setSaveError('Failed to configure key.')
-      }
-    } catch (e: any) {
-      setSaveError(e.message || 'Error saving API key')
-    } finally {
-      setSavingKey(false)
-    }
-  }
-
   return (
     <>
       {/* Background Ambience Layers */}
+      <ParticleWave />
       <div className="grain" aria-hidden="true" />
       <div className="hero-photo" aria-hidden="true" />
 
@@ -178,14 +141,6 @@ function App() {
               <span>What-If</span>
             </NavLink>
             <NavLink
-              to="/dashboard"
-              className={({ isActive }) => `nav-pill appear appear--scale ${isActive ? 'active' : ''}`}
-              style={{ '--d': '0.40s' } as React.CSSProperties}
-            >
-              <BarChart3 size={14} />
-              <span>Model Metrics</span>
-            </NavLink>
-            <NavLink
               to="/about"
               className={({ isActive }) => `nav-pill appear appear--soft ${isActive ? 'active' : ''}`}
               style={{ '--d': '0.52s' } as React.CSSProperties}
@@ -195,27 +150,8 @@ function App() {
             </NavLink>
           </nav>
 
-          {/* Right: CTA & Burger */}
+          {/* Right: Burger */}
           <div className="header-right">
-            <button
-              className={`key-pill appear appear--scale ${llmConfigured ? 'active' : ''}`}
-              style={{ '--d': '0.34s' } as React.CSSProperties}
-              onClick={() => setShowKeyModal(true)}
-              title={llmConfigured ? 'Qualcomm Cloud AI Connected' : 'Connect Qualcomm Cloud AI API Key'}
-            >
-              {llmConfigured ? (
-                <>
-                  <Sparkles size={13} style={{ color: 'var(--mmtc-color)' }} />
-                  <span>Qualcomm AI Active</span>
-                </>
-              ) : (
-                <>
-                  <Key size={13} />
-                  <span>Connect Qualcomm AI</span>
-                </>
-              )}
-            </button>
-
             <button
               className="burger-btn appear appear--scale"
               style={{ '--d': '0.34s' } as React.CSSProperties}
@@ -231,127 +167,13 @@ function App() {
           </div>
         </header>
 
-        {/* Modal for Qualcomm API Key */}
-        {showKeyModal && (
-          <div className="modal-backdrop" onClick={() => setShowKeyModal(false)}>
-            <div className="modal-card" onClick={e => e.stopPropagation()}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div className="card-icon" style={{ borderColor: 'rgba(168, 85, 247, 0.4)', color: 'var(--purple-accent)' }}>
-                    <Sparkles size={18} />
-                  </div>
-                  <div>
-                    <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0, color: '#ffffff', letterSpacing: '-0.02em' }}>
-                      Qualcomm Cloud AI
-                    </h3>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                      Llama-3.1-8B · NLP extraction & plain-English explanation
-                    </div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowKeyModal(false)}
-                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}
-                  aria-label="Close"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div style={{ fontSize: 13, color: 'var(--stat)', lineHeight: 1.6, marginBottom: 18 }}>
-                Qualcomm Cloud AI inference powers:
-                <ul style={{ margin: '8px 0 0 16px', padding: 0 }}>
-                  <li><strong>Natural Language Extraction:</strong> Converts conversational use-case descriptions into structured 5G QoS parameters.</li>
-                  <li><strong>Prediction Reasoning:</strong> Explains model predictions in simple, actionable English.</li>
-                </ul>
-                <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
-                  <em>Note: The Scikit-learn Random Forest model always performs the classification. The LLM never overrides or chooses slice categories.</em>
-                </div>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 16 }}>
-                <label className="form-label">Qualcomm API Key</label>
-                <input
-                  className="form-input"
-                  type="password"
-                  placeholder={llmConfigured ? '••••••••••••••••••••••••••••••••' : 'Enter your Qualcomm Cloud AI key'}
-                  value={inputKey}
-                  onChange={e => setInputKey(e.target.value)}
-                />
-                <span style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, display: 'block' }}>
-                  Keys can be updated for this active session or saved in <code>backend/.env</code>.
-                </span>
-              </div>
-
-              {saveSuccess && (
-                <div className="alert alert-success" style={{ marginBottom: 16 }}>
-                  <Check size={16} />
-                  <span>Qualcomm Cloud AI Key configured successfully!</span>
-                </div>
-              )}
-
-              {saveError && (
-                <div className="alert alert-error" style={{ marginBottom: 16 }}>
-                  <span>{saveError}</span>
-                </div>
-              )}
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24 }}>
-                <a
-                  href="https://aihub.qualcomm.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--muted)' }}
-                >
-                  Qualcomm AI Hub <ExternalLink size={12} />
-                </a>
-
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button
-                    className="btn btn-ghost"
-                    onClick={() => setShowKeyModal(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="btn btn-solid"
-                    onClick={handleSaveKey}
-                    disabled={savingKey || !inputKey.trim()}
-                  >
-                    {savingKey ? 'Connecting...' : 'Save & Connect'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Main Content View */}
         <main className="main-content">
           <Routes>
             <Route path="/" element={<PredictPage />} />
             <Route path="/what-if" element={<WhatIfPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/about" element={<AboutPage />} />
           </Routes>
         </main>
-
-        {/* Footer */}
-        <footer style={{
-          borderTop: '1px solid var(--border-soft)',
-          padding: '24px 40px',
-          textAlign: 'center',
-          color: 'var(--muted)',
-          fontSize: 12,
-          lineHeight: 1.6
-        }}>
-          <div style={{ color: 'var(--stat)', marginBottom: 4, fontWeight: 500 }}>
-            ⚠ Prototype Demonstration — 5G Network Slice Suitability Checker (NC-02 Hackathon)
-          </div>
-          <div>
-            Powered by Scikit-learn Random Forest Classifier (100% test accuracy on 300,000 real telecom records) & Qualcomm Cloud AI Llama-3.1-8B.
-          </div>
-        </footer>
       </div>
     </>
   )

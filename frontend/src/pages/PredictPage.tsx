@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
-import { Send, MessageSquareText, FileText, AlertTriangle, Sparkles, Loader2, ArrowRight } from 'lucide-react'
+import { Send, MessageSquareText, FileText, AlertTriangle, Sparkles, Loader2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { api, type PredictionRequest, type PredictionResponse, type FeatureSchema } from '../api'
 
@@ -59,10 +58,6 @@ export default function PredictPage() {
       setFormData(prev => ({ ...prev, use_case: schema.use_case_values[0] }))
     }
   }, [schema])
-
-  const scrollToWorkbench = () => {
-    workbenchRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
 
   const handlePredict = async () => {
     setLoading(true)
@@ -134,17 +129,6 @@ export default function PredictPage() {
           ══════════════════════════════════════════════════════════════════ */}
       <section className="hero" id="top">
         <div className="hero-copy">
-          {/* Badge */}
-          <div
-            className="badge appear appear--pop"
-            style={{ '--d': '0.22s' } as React.CSSProperties}
-          >
-            <svg className="badge-star badge-star-anim" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2.6C12.55 2.6 12.88 3.15 13.08 4.7c.62 4.7 1.52 5.6 6.22 6.22 1.55.2 2.1.53 2.1 1.08s-.55.88-2.1 1.08c-4.7.62-5.6 1.52-6.22 6.22-.2 1.55-.53 2.1-1.08 2.1s-.88-.55-1.08-2.1c-.62-4.7-1.52-5.6-6.22-6.22C3.15 12.88 2.6 12.55 2.6 12s.55-.88 2.1-1.08c4.7-.62 5.6-1.52 6.22-6.22C11.12 3.15 11.45 2.6 12 2.6Z" />
-            </svg>
-            <span>Operational 5G AI Infrastructure</span>
-          </div>
-
           {/* Masked Headline */}
           <h1>
             <span
@@ -170,97 +154,8 @@ export default function PredictPage() {
             coupled with Qualcomm Cloud AI Llama-3.1-8B for instant, plain-English slice diagnostics.
           </p>
 
-          {/* Action Buttons */}
-          <div className="hero-actions">
-            <button
-              onClick={scrollToWorkbench}
-              className="btn btn-solid hero-btn hero-btn-solid appear appear--btn"
-              style={{ '--d': '0.96s' } as React.CSSProperties}
-            >
-              <span>Predict Network Slice</span>
-              <ArrowRight size={14} />
-            </button>
-            <Link
-              to="/what-if"
-              className="btn btn-ghost hero-btn hero-btn-ghost appear appear--side"
-              style={{ '--d': '1.10s' } as React.CSSProperties}
-            >
-              <span>Explore What-If Simulator</span>
-            </Link>
-          </div>
         </div>
       </section>
-
-      {/* ══════════════════════════════════════════════════════════════════
-          STATS FOOTER BAR
-          ══════════════════════════════════════════════════════════════════ */}
-      <footer className="stats section-gap-lg">
-        {/* Stat 1: Dual-Pill / Workflow Icon */}
-        <div
-          className="stat appear appear--stat"
-          style={{ '--d': '1.12s' } as React.CSSProperties}
-        >
-          <svg className="stat-icon" viewBox="0 0 24 24" fill="none">
-            <defs>
-              <linearGradient id="gLeft" x1="3" y1="2" x2="14" y2="22" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#ffffff" stopOpacity="0.38" />
-                <stop offset="100%" stopColor="#3a3a3a" stopOpacity="0.62" />
-              </linearGradient>
-              <linearGradient id="gRight" x1="3" y1="2" x2="14" y2="22" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#3a3a3a" stopOpacity="0.38" />
-                <stop offset="100%" stopColor="#ffffff" stopOpacity="0.62" />
-              </linearGradient>
-            </defs>
-            <rect x="3.4" y="2.6" width="7.2" height="18.8" rx="3.6" fill="url(#gLeft)" />
-            <rect x="13.4" y="2.6" width="7.2" height="18.8" rx="3.6" fill="url(#gRight)" />
-            <rect x="9.2" y="10.9" width="5.6" height="2.2" rx="1.1" fill="#4a4a4a" />
-          </svg>
-          <span>300,000+ Nigerian 5G records trained</span>
-        </div>
-
-        {/* Stat 2: Download Tile */}
-        <div
-          className="stat appear appear--stat"
-          style={{ '--d': '1.28s' } as React.CSSProperties}
-        >
-          <svg className="stat-icon" viewBox="0 0 24 24" fill="none">
-            <rect x="2.4" y="2.4" width="19.2" height="19.2" rx="6.2" fill="#ffffff" />
-            <path d="M12 7.1v7.4" stroke="#111111" strokeWidth="1.85" strokeLinecap="round" />
-            <path d="M8.15 12.35L12 16.2l3.85-3.85" stroke="#111111" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span>100.0% validation accuracy & F1 score</span>
-        </div>
-
-        {/* Stat 3: 3GPP Network Slice Avatars */}
-        <div
-          className="stat appear appear--stat"
-          style={{ '--d': '1.44s' } as React.CSSProperties}
-        >
-          <svg className="stat-icon-wide" viewBox="0 0 40 22" fill="none">
-            {/* URLLC Circle */}
-            <circle cx="10.2" cy="11" r="9.2" fill="#2b2b2b" />
-            <ellipse cx="10.2" cy="12.1" rx="4.15" ry="3.7" fill="#f4f4f4" />
-            <polygon points="7.2,5 9.2,9 6.2,9" fill="#2b2b2b" />
-            <polygon points="13.2,5 14.2,9 11.2,9" fill="#2b2b2b" />
-            <circle cx="8.8" cy="11.5" r="0.7" fill="#1a1a1a" />
-            <circle cx="11.6" cy="11.5" r="0.7" fill="#1a1a1a" />
-
-            {/* eMBB Circle */}
-            <circle cx="20.2" cy="11" r="9.2" fill="#ffffff" />
-            <circle cx="18.2" cy="9.8" r="1.4" fill="#111111" />
-            <circle cx="22.2" cy="9.8" r="1.4" fill="#111111" />
-            <ellipse cx="20.2" cy="12.5" rx="1.2" ry="0.8" fill="#111111" />
-            <path d="M18 14.5c1.2 1.2 3.2 1.2 4.4 0" stroke="#111111" strokeWidth="1.2" strokeLinecap="round" />
-
-            {/* mMTC Circle */}
-            <circle cx="30.2" cy="11" r="9.2" fill="#f26b1d" />
-            <text x="30.2" y="15.1" fill="#ffffff" fontSize="12.5" fontWeight="700" textAnchor="middle" fontFamily="Inter, sans-serif">
-              5G
-            </text>
-          </svg>
-          <span>3GPP Slices: eMBB · URLLC · mMTC</span>
-        </div>
-      </footer>
 
       {/* ══════════════════════════════════════════════════════════════════
           SLICE QUICK REFERENCE
