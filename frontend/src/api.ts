@@ -9,8 +9,6 @@ export interface PredictionRequest {
   reliability_percent: number;
   active_connections: number;
   bandwidth_allocated_mhz: number;
-  app_name?: string;
-  app_description?: string;
 }
 
 export interface PredictionResponse {
