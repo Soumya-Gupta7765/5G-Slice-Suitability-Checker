@@ -16,9 +16,8 @@ function App() {
     document.body.classList.remove('menu-open')
   }, [location.pathname])
 
-  // Setup animations and menu listeners
+  // Entrance motion (movement only — no fade) and menu listeners
   useEffect(() => {
-    // 1. Add is-in class on animationend
     const onAnimationEnd = (e: AnimationEvent) => {
       const target = e.target as HTMLElement
       if (target && target.classList.contains('appear')) {
@@ -27,22 +26,18 @@ function App() {
     }
     document.addEventListener('animationend', onAnimationEnd)
 
-    // 2. JS Fallback: after two rAFs, if no animations running, add is-in
     let raf1: number, raf2: number
     raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
-        const appears = document.querySelectorAll<HTMLElement>('.appear')
-        appears.forEach(el => {
+        document.querySelectorAll<HTMLElement>('.appear').forEach(el => {
           const anims = el.getAnimations ? el.getAnimations() : []
-          const hasActive = anims.some(a => a.playState === 'running' || a.playState === 'finished')
-          if (!hasActive) {
+          if (!anims.some(a => a.playState === 'running' || a.playState === 'finished')) {
             el.classList.add('is-in')
           }
         })
       })
     })
 
-    // 3. Close menu on Escape
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setMenuOpen(false)
@@ -51,7 +46,6 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown)
 
-    // 4. Close menu if resized >= 901px
     const onResize = () => {
       if (window.innerWidth >= 901) {
         setMenuOpen(false)

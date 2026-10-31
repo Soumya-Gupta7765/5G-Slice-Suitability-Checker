@@ -1,7 +1,25 @@
-import { useState, useEffect } from 'react'
-import { Send, Sparkles, AlertTriangle, Loader2, X } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import {
+  Send,
+  Sparkles,
+  AlertTriangle,
+  Loader2,
+  X,
+  Upload,
+  FileText,
+  Download,
+  HelpCircle,
+  Check,
+} from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import { api, type PredictionRequest, type PredictionResponse, type FeatureSchema } from '../api'
+import {
+  api,
+  type PredictionRequest,
+  type PredictionResponse,
+  type FeatureSchema,
+  type ExtractionResponse,
+  type RequirementSample,
+} from '../api'
 
 const SLICE_INFO: Record<string, { full: string; icon: string; desc: string }> = {
   URLLC: {
@@ -30,20 +48,278 @@ const FEATURE_LABELS: Record<string, string> = {
   bandwidth_allocated_mhz: 'Bandwidth Allocated (MHz)',
 }
 
-const EXAMPLE_PROMPT =
-  'Autonomous haulage trucks in an open-pit mine stream sensor telemetry to a control centre. They need sub-10 ms latency, 99.999% reliability and around 400 concurrent connections.'
+type NumericField =
+  | 'throughput_mbps'
+  | 'latency_ms'
+  | 'reliability_percent'
+  | 'active_connections'
+  | 'bandwidth_allocated_mhz'
 
-function formatFeatureValue(field: string, value: unknown) {
-  if (field === 'use_case') {
-    const text = String(value || '').replace(/_/g, ' ')
-    return text || '—'
-  }
-  const num = Number(value)
-  if (!Number.isFinite(num)) return '—'
+const NUMERIC_FIELDS: NumericField[] = [
+  'throughput_mbps',
+  'latency_ms',
+  'reliability_percent',
+  'active_connections',
+  'bandwidth_allocated_mhz',
+]
+
+// Selecting this in the use case list leaves the use case out of the prediction.
+const NONE_USE_CASE = '__none__'
+
+interface QuickOption {
+  label: string
+  value: number
+}
+
+interface FieldConfig {
+  label: string
+  unit: string
+  step: number
+  min: number
+  max: number
+  sliderMin: number
+  sliderMax: number
+  sliderStep: number
+  quick: QuickOption[]
+}
+
+const FIELD_CONFIG: Record<NumericField, FieldConfig> = {
+  throughput_mbps: {
+    label: 'Throughput',
+    unit: 'Mbps',
+    step: 0.1,
+    min: 0,
+    max: 100000,
+    sliderMin: 1,
+    sliderMax: 1000,
+    sliderStep: 1,
+    quick: [
+      { label: 'Very low', value: 5 },
+      { label: 'Low', value: 25 },
+      { label: 'Medium', value: 100 },
+      { label: 'High', value: 500 },
+      { label: 'Very high', value: 2000 },
+    ],
+  },
+  latency_ms: {
+    label: 'Latency',
+    unit: 'ms',
+    step: 0.1,
+    min: 0,
+    max: 10000,
+    sliderMin: 1,
+    sliderMax: 200,
+    sliderStep: 1,
+    quick: [
+      { label: 'Very low', value: 5 },
+      { label: 'Low', value: 10 },
+      { label: 'Medium', value: 30 },
+      { label: 'High', value: 100 },
+      { label: 'Very high', value: 300 },
+    ],
+  },
+  reliability_percent: {
+    label: 'Reliability',
+    unit: '%',
+    step: 0.001,
+    min: 0,
+    max: 100,
+    sliderMin: 90,
+    sliderMax: 99.999,
+    sliderStep: 0.001,
+    quick: [
+      { label: '95%', value: 95 },
+      { label: '99%', value: 99 },
+      { label: '99.9%', value: 99.9 },
+      { label: '99.99%', value: 99.99 },
+      { label: '99.999%', value: 99.999 },
+    ],
+  },
+  active_connections: {
+    label: 'Active Connections',
+    unit: '',
+    step: 1,
+    min: 0,
+    max: 10000000,
+    sliderMin: 1,
+    sliderMax: 10000,
+    sliderStep: 1,
+    quick: [
+      { label: 'A few', value: 10 },
+      { label: 'A few hundred', value: 500 },
+      { label: 'Thousands', value: 5000 },
+      { label: 'Hundreds of thousands', value: 100000 },
+    ],
+  },
+  bandwidth_allocated_mhz: {
+    label: 'Bandwidth Allocated',
+    unit: 'MHz',
+    step: 1,
+    min: 0,
+    max: 100000,
+    sliderMin: 1,
+    sliderMax: 100,
+    sliderStep: 1,
+    quick: [
+      { label: 'Very low', value: 10 },
+      { label: 'Low', value: 20 },
+      { label: 'Medium', value: 40 },
+      { label: 'High', value: 80 },
+      { label: 'Very high', value: 160 },
+    ],
+  },
+}
+
+const EXAMPLE_PROMPT =
+  'We stream 4K product demos and live cloud gaming sessions to remote users. Each session needs about 65 Mbps, latency under 15 ms, 99.9% reliability and roughly 500 concurrent connections.'
+
+const emptyValues = (): Record<NumericField, number | null> => ({
+  throughput_mbps: null,
+  latency_ms: null,
+  reliability_percent: null,
+  active_connections: null,
+  bandwidth_allocated_mhz: null,
+})
+
+const emptyUnknown = (): Record<NumericField, boolean> => ({
+  throughput_mbps: false,
+  latency_ms: false,
+  reliability_percent: false,
+  active_connections: false,
+  bandwidth_allocated_mhz: false,
+})
+
+function numericSuggestion(entry?: { suggestion?: string | number | null } | null) {
+  return typeof entry?.suggestion === 'number' ? entry.suggestion : null
+}
+
+function formatNumber(field: string, value: number) {
   if (field === 'active_connections' || field === 'bandwidth_allocated_mhz') {
-    return num.toLocaleString()
+    return value.toLocaleString()
   }
-  return String(num)
+  return String(value)
+}
+
+function formatFeatureValue(field: string, value: unknown, unknown = false) {
+  if (unknown) return "Don't know"
+  if (field === 'use_case') {
+    if (!value) return 'None of these'
+    return String(value).replace(/_/g, ' ')
+  }
+  if (value === null || value === undefined || value === '') return 'Not set'
+  const num = Number(value)
+  if (!Number.isFinite(num)) return 'Not set'
+  return formatNumber(field, num)
+}
+
+interface NumericFieldControlProps {
+  field: NumericField
+  value: number | null
+  unknown: boolean
+  suggestion?: number | null
+  range?: { min: number; max: number; mean: number; std: number }
+  onChange: (value: number | null) => void
+  onToggleUnknown: () => void
+}
+
+function NumericFieldControl({
+  field,
+  value,
+  unknown,
+  suggestion,
+  range,
+  onChange,
+  onToggleUnknown,
+}: NumericFieldControlProps) {
+  const config = FIELD_CONFIG[field]
+  const inputRef = useRef<HTMLInputElement>(null)
+  const answered = value !== null && !unknown
+  const anchor = value ?? suggestion ?? range?.mean ?? config.sliderMin
+  const sliderValue = Math.min(Math.max(anchor, config.sliderMin), config.sliderMax)
+
+  return (
+    <div className="form-group">
+      <div className="field-label-row">
+        <label className="form-label" style={{ marginBottom: 0 }}>
+          {config.label} {config.unit && <span className="form-sublabel">({config.unit})</span>}
+        </label>
+        <button
+          type="button"
+          className={`dont-know-btn ${unknown ? 'active' : ''}`}
+          onClick={onToggleUnknown}
+          aria-pressed={unknown}
+          title="Use the dataset average for this parameter and flag it in the result"
+        >
+          {unknown ? <Check size={11} /> : <HelpCircle size={11} />}
+          Don't know
+        </button>
+      </div>
+
+      {!answered && (
+        <div className="quick-ask">
+          <span className="quick-ask-title">{config.label}?</span>
+          <div className="chip-row">
+            {config.quick.map(option => (
+              <button
+                key={option.label}
+                type="button"
+                className="chip"
+                onClick={() => onChange(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+            <button type="button" className="chip" onClick={() => inputRef.current?.focus()}>
+              I'll enter it myself
+            </button>
+            <button
+              type="button"
+              className={`chip ${unknown ? 'active' : ''}`}
+              onClick={onToggleUnknown}
+            >
+              Don't know
+            </button>
+          </div>
+        </div>
+      )}
+
+      <input
+        ref={inputRef}
+        className="form-input"
+        type="number"
+        min={config.min}
+        max={config.max}
+        step={config.step}
+        placeholder={unknown ? "Don't know — dataset average will be used" : 'Not set'}
+        value={unknown || value === null ? '' : value}
+        disabled={unknown}
+        onChange={e => onChange(e.target.value === '' ? null : parseFloat(e.target.value))}
+      />
+
+      {!answered && suggestion !== null && suggestion !== undefined && (
+        <span className="suggestion-hint">
+          Most likely ~{formatNumber(field, suggestion)} {config.unit} — move the slider to use it.
+        </span>
+      )}
+      {(answered || suggestion === null || suggestion === undefined) && range && (
+        <span className="form-hint">
+          Typical range: {range.min.toLocaleString()} – {range.max.toLocaleString()} {config.unit}
+        </span>
+      )}
+
+      <input
+        className="mini-slider"
+        type="range"
+        aria-label={`${config.label} slider`}
+        min={config.sliderMin}
+        max={config.sliderMax}
+        step={config.sliderStep}
+        value={sliderValue}
+        disabled={unknown}
+        onChange={e => onChange(parseFloat(Number(e.target.value).toFixed(3)))}
+      />
+    </div>
+  )
 }
 
 export default function PredictPage() {
@@ -53,21 +329,23 @@ export default function PredictPage() {
   const [error, setError] = useState('')
   const [schemaError, setSchemaError] = useState('')
 
-  // Form state
-  const [formData, setFormData] = useState<PredictionRequest>({
-    use_case: '',
-    throughput_mbps: 100,
-    latency_ms: 10,
-    reliability_percent: 99.9,
-    active_connections: 1000,
-    bandwidth_allocated_mhz: 50,
-  })
+  // Every parameter starts unset so nothing is predicted from assumptions.
+  const [useCase, setUseCase] = useState(NONE_USE_CASE)
+  const [values, setValues] = useState<Record<NumericField, number | null>>(emptyValues)
+  const [unknown, setUnknown] = useState<Record<NumericField, boolean>>(emptyUnknown)
+  const [assumedFields, setAssumedFields] = useState<{ field: NumericField; value: number }[]>([])
 
-  // NLP state
+  // Requirements document state
   const [nlpText, setNlpText] = useState('')
   const [extracting, setExtracting] = useState(false)
-  const [extracted, setExtracted] = useState(false)
+  const [extracted, setExtracted] = useState<ExtractionResponse | null>(null)
+  const [uploadedName, setUploadedName] = useState('')
+  const [dragging, setDragging] = useState(false)
+  const [samples, setSamples] = useState<RequirementSample[]>([])
+  const [loadingSample, setLoadingSample] = useState('')
+  const [dismissedQuestions, setDismissedQuestions] = useState<string[]>([])
   const [showExample, setShowExample] = useState(true)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     api.getFeatureSchema()
@@ -76,16 +354,161 @@ export default function PredictPage() {
   }, [])
 
   useEffect(() => {
-    if (schema && schema.use_case_values.length > 0 && !formData.use_case) {
-      setFormData(prev => ({ ...prev, use_case: schema.use_case_values[0] }))
+    api.listSamples()
+      .then(res => setSamples(res.samples))
+      .catch(() => setSamples([]))
+  }, [])
+
+  const missingFields = NUMERIC_FIELDS.filter(f => values[f] === null && !unknown[f])
+  const canPredict = missingFields.length === 0
+  const canExtract = nlpText.trim().length >= 10
+
+  const updateField = (field: NumericField, value: number | null) => {
+    setValues(prev => ({ ...prev, [field]: value }))
+    if (value !== null) {
+      setUnknown(prev => ({ ...prev, [field]: false }))
     }
-  }, [schema])
+  }
+
+  const toggleUnknown = (field: NumericField) => {
+    setUnknown(prev => {
+      const next = { ...prev, [field]: !prev[field] }
+      if (next[field]) {
+        setValues(vals => ({ ...vals, [field]: null }))
+      }
+      return next
+    })
+  }
+
+  const clearDocument = () => {
+    setUploadedName('')
+    setExtracted(null)
+    setDismissedQuestions([])
+    setAssumedFields([])
+  }
+
+  const applyExtraction = (res: ExtractionResponse) => {
+    setExtracted(res)
+    setDismissedQuestions([])
+    setResult(null)
+    setAssumedFields([])
+
+    const nextValues = emptyValues()
+    for (const field of NUMERIC_FIELDS) {
+      const value = res.fields?.[field]?.value
+      if (value !== null && value !== undefined && Number.isFinite(Number(value))) {
+        nextValues[field] = Number(value)
+      }
+    }
+    const nextUseCase = res.fields?.use_case?.value
+    setValues(nextValues)
+    setUnknown(emptyUnknown())
+    setUseCase(nextUseCase ? String(nextUseCase) : NONE_USE_CASE)
+  }
+
+  const handleExtractText = async () => {
+    setExtracting(true)
+    setError('')
+    try {
+      const res = await api.extractRequirements(nlpText)
+      setUploadedName('')
+      applyExtraction(res)
+      if (!res.success) setError(res.error || 'No parameters could be extracted. Fill the form below.')
+    } catch (e: any) {
+      setError(e.message || 'Extraction failed. Fill the form manually.')
+    } finally {
+      setExtracting(false)
+    }
+  }
+
+  const handleFile = async (file: File | null | undefined) => {
+    if (!file) return
+    if (!/\.(txt|md|markdown|pdf)$/i.test(file.name)) {
+      setError('Unsupported file. Upload a .txt, .md or .pdf document.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('File is larger than 5 MB. Upload a shorter document.')
+      return
+    }
+    setExtracting(true)
+    setError('')
+    try {
+      const res = await api.extractRequirementsFile(file)
+      setUploadedName(file.name)
+      applyExtraction(res)
+      if (!res.success) setError(res.error || 'No parameters could be extracted. Fill the form below.')
+    } catch (e: any) {
+      setError(e.message || 'Could not read that file.')
+    } finally {
+      setExtracting(false)
+    }
+  }
+
+  const handleSample = async (sample: RequirementSample) => {
+    setExtracting(true)
+    setLoadingSample(sample.id)
+    setError('')
+    try {
+      const detail = await api.getSample(sample.id)
+      setUploadedName(detail.filename)
+      const res = await api.extractRequirements(detail.text)
+      applyExtraction(res)
+      if (!res.success) setError(res.error || 'No parameters could be extracted from this sample.')
+    } catch (e: any) {
+      setError(e.message || 'Could not load that sample.')
+    } finally {
+      setExtracting(false)
+      setLoadingSample('')
+    }
+  }
+
+  const answerQuestion = (field: string, value: string | number | null) => {
+    setDismissedQuestions(prev => [...prev, field])
+    if (field === 'use_case') {
+      if (typeof value === 'string') setUseCase(value)
+      return
+    }
+    const numericField = field as NumericField
+    if (value === null) {
+      setUnknown(prev => ({ ...prev, [numericField]: true }))
+      setValues(prev => ({ ...prev, [numericField]: null }))
+    } else {
+      setValues(prev => ({ ...prev, [numericField]: Number(value) }))
+      setUnknown(prev => ({ ...prev, [numericField]: false }))
+    }
+  }
 
   const handlePredict = async () => {
+    if (!canPredict) return
+    const payload = {
+      use_case: useCase === NONE_USE_CASE ? '' : useCase,
+      throughput_mbps: 0,
+      latency_ms: 0,
+      reliability_percent: 0,
+      active_connections: 0,
+      bandwidth_allocated_mhz: 0,
+    } as PredictionRequest
+
+    const assumed: { field: NumericField; value: number }[] = []
+    for (const field of NUMERIC_FIELDS) {
+      if (values[field] !== null) {
+        payload[field] = values[field] as number
+        continue
+      }
+      const fallback = schema?.feature_ranges?.[field]?.mean ?? FIELD_CONFIG[field].quick[0].value
+      const rounded = field === 'active_connections' || field === 'bandwidth_allocated_mhz'
+        ? Math.round(fallback)
+        : Number(fallback.toFixed(2))
+      payload[field] = rounded
+      assumed.push({ field, value: rounded })
+    }
+    setAssumedFields(assumed)
+
     setLoading(true)
     setError('')
     try {
-      const res = await api.predict(formData)
+      const res = await api.predict(payload)
       setResult(res)
     } catch (e: any) {
       setError(e.message)
@@ -94,36 +517,20 @@ export default function PredictPage() {
     }
   }
 
-  const handleExtract = async () => {
-    setExtracting(true)
-    setError('')
-    try {
-      const res = await api.extractRequirements(nlpText)
-      if (res.success && res.extracted) {
-        const ext = res.extracted
-        setFormData(prev => ({
-          ...prev,
-          use_case: ext.use_case || prev.use_case,
-          throughput_mbps: ext.throughput_mbps ?? prev.throughput_mbps,
-          latency_ms: ext.latency_ms ?? prev.latency_ms,
-          reliability_percent: ext.reliability_percent ?? prev.reliability_percent,
-          active_connections: ext.active_connections ?? prev.active_connections,
-          bandwidth_allocated_mhz: ext.bandwidth_allocated_mhz ?? prev.bandwidth_allocated_mhz,
-        }))
-        setExtracted(true)
-      } else {
-        setError(res.error || 'Extraction failed. Please adjust values in the form.')
-      }
-    } catch (e: any) {
-      setError(e.message || 'LLM extraction failed. Please enter values manually.')
-    } finally {
-      setExtracting(false)
-    }
-  }
+  const pendingQuestions = (extracted?.ambiguous || []).filter(q => {
+    if (dismissedQuestions.includes(q.field)) return false
+    if (q.field === 'use_case') return useCase === NONE_USE_CASE
+    const field = q.field as NumericField
+    if (!NUMERIC_FIELDS.includes(field)) return false
+    return values[field] === null && !unknown[field]
+  })
 
-  const updateField = (field: string, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
-  }
+  const extractedCount = extracted
+    ? NUMERIC_FIELDS.filter(f => extracted.fields?.[f]?.value !== null && extracted.fields?.[f]?.value !== undefined).length +
+      (extracted.fields?.use_case?.value ? 1 : 0)
+    : 0
+
+  const useCaseSuggestion = extracted?.fields?.use_case?.suggestion
 
   if (schemaError) {
     return (
@@ -202,180 +609,291 @@ export default function PredictPage() {
             </div>
             <div>
               <div className="card-title">Slice Suitability Predictor</div>
-              <div className="card-subtitle">Describe your application or set the network constraints</div>
+              <div className="card-subtitle">Upload a requirements file or set the network constraints</div>
             </div>
           </div>
 
           {extracted && (
-            <div className="alert alert-success" style={{ marginBottom: 16 }}>
-              <Sparkles size={16} />
-              <span>Requirements successfully extracted by Qualcomm Cloud AI! Review values and submit.</span>
+            <div className={`alert ${extractedCount > 0 ? 'alert-success' : 'alert-warning'}`} style={{ marginBottom: 16 }}>
+              <Sparkles size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>
+                {extractedCount > 0
+                  ? `Read ${extractedCount} of 6 parameters from the document. Review the values and answer what is left.`
+                  : 'The document was read but no parameters were clear enough to autofill. Fill the form below.'}
+              </span>
             </div>
           )}
 
           {error && (
             <div className="alert alert-error" style={{ marginBottom: 16 }}>
-              <AlertTriangle size={16} />
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
               <span>{error}</span>
             </div>
           )}
 
-          {/* Natural language (optional) */}
+          {/* Requirements document upload */}
           <div className="form-group">
             <label className="form-label">
-              Describe your application <span className="form-sublabel">(optional)</span>
+              Requirements document <span className="form-sublabel">(optional · .txt, .md or .pdf · max 5 MB)</span>
+            </label>
+            <div
+              className={`upload-zone ${dragging ? 'dragging' : ''} ${extracting ? 'busy' : ''}`}
+              onClick={() => !extracting && fileInputRef.current?.click()}
+              onDragOver={e => {
+                e.preventDefault()
+                setDragging(true)
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={e => {
+                e.preventDefault()
+                setDragging(false)
+                if (!extracting) handleFile(e.dataTransfer.files?.[0])
+              }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => {
+                if ((e.key === 'Enter' || e.key === ' ') && !extracting) {
+                  e.preventDefault()
+                  fileInputRef.current?.click()
+                }
+              }}
+            >
+              {extracting ? (
+                <>
+                  <Loader2 size={20} className="spinner" />
+                  <span>Reading requirements and extracting parameters…</span>
+                </>
+              ) : uploadedName ? (
+                <div className="uploaded-file">
+                  <FileText size={14} />
+                  <span>{uploadedName}</span>
+                  <button
+                    type="button"
+                    className="uploaded-file-x"
+                    aria-label={`Remove ${uploadedName}`}
+                    onClick={e => {
+                      e.stopPropagation()
+                      clearDocument()
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <Upload size={20} />
+                  <span>
+                    Drop a file here or <strong>browse</strong>
+                  </span>
+                </>
+              )}
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.md,.markdown,.pdf"
+              style={{ display: 'none' }}
+              onChange={e => {
+                handleFile(e.target.files?.[0])
+                e.target.value = ''
+              }}
+            />
+
+            {samples.length > 0 && (
+              <div className="sample-row">
+                <span className="sample-row-label">Use an example:</span>
+                {samples.map(sample => (
+                  <span key={sample.id} className="sample-chip">
+                    <button
+                      type="button"
+                      className="sample-chip-load"
+                      onClick={() => handleSample(sample)}
+                      disabled={extracting}
+                      title={sample.description}
+                    >
+                      {loadingSample === sample.id && <Loader2 size={11} className="spinner" />}
+                      {sample.title}
+                    </button>
+                    <a
+                      href={api.sampleDownloadUrl(sample.id)}
+                      download
+                      className="sample-chip-download"
+                      title={`Download ${sample.filename}`}
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <Download size={11} />
+                    </a>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {extracted?.text_preview && (
+            <details className="document-preview">
+              <summary>Read document text</summary>
+              <pre>{extracted.text_preview}</pre>
+            </details>
+          )}
+
+          {/* Optional pasted description */}
+          <div className="form-group">
+            <label className="form-label">
+              Or paste requirements <span className="form-sublabel">(optional)</span>
             </label>
             <textarea
               className="form-textarea"
               value={nlpText}
               onChange={e => setNlpText(e.target.value)}
-              placeholder="E.g. We are deploying autonomous haulage trucks in an open-pit mine. The vehicles stream sensor telemetry and require sub-10ms latency with 99.999% uptime to prevent collisions."
-              style={{ minHeight: 120 }}
+              style={{ minHeight: 96 }}
             />
-            {showExample && !nlpText && (
-              <div className="example-chip">
+            <div className="example-row">
+              {showExample && !nlpText && (
                 <button
                   type="button"
-                  className="example-chip-text"
-                  onClick={() => setNlpText(EXAMPLE_PROMPT)}
+                  className="example-toggle"
+                  onClick={() => {
+                    setNlpText(EXAMPLE_PROMPT)
+                    setShowExample(false)
+                  }}
                 >
-                  <strong>Example:</strong> {EXAMPLE_PROMPT}
-                  <span className="example-chip-cta">Use this</span>
+                  <Sparkles size={12} />
+                  Use an example
                 </button>
-                <button
-                  type="button"
-                  className="example-chip-close"
-                  onClick={() => setShowExample(false)}
-                  aria-label="Remove example"
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            )}
-            <button
-              className="btn btn-ghost"
-              style={{ width: '100%', height: 42, marginTop: 10 }}
-              onClick={handleExtract}
-              disabled={extracting || nlpText.trim().length < 10}
-            >
-              {extracting ? (
-                <>
-                  <Loader2 size={16} className="spinner" />
-                  <span>Extracting with Qualcomm Cloud AI...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles size={16} />
-                  <span>Autofill Constraints from Description</span>
-                </>
               )}
-            </button>
+              <button
+                className="btn btn-ghost"
+                style={{ height: 42, marginLeft: 'auto' }}
+                onClick={handleExtractText}
+                disabled={extracting || !canExtract}
+              >
+                {extracting ? (
+                  <>
+                    <Loader2 size={16} className="spinner" />
+                    <span>Extracting…</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={16} />
+                    <span>Autofill from Text</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           <div className="form-divider">
             <span>Network Constraints</span>
           </div>
 
-          <div className="grid-2">
-            <div className="form-group">
-              <label className="form-label">Telecom Use Case</label>
-              <select
-                className="form-select"
-                value={formData.use_case}
-                onChange={e => updateField('use_case', e.target.value)}
-              >
-                {schema?.use_case_values.map(v => (
-                  <option key={v} value={v}>{v.replace(/_/g, ' ')}</option>
-                ))}
-              </select>
+          {pendingQuestions.length > 0 && (
+            <div className="question-block" style={{ marginBottom: 18 }}>
+              <div className="question-title">
+                <HelpCircle size={14} />
+                <span>We need a little more detail</span>
+              </div>
+              {pendingQuestions.map(question => (
+                <div key={question.field} className="question-item">
+                  <div className="question-text">{question.question}</div>
+                  <div className="chip-row">
+                    {question.options.map(option => (
+                      <button
+                        key={`${question.field}-${option.label}`}
+                        type="button"
+                        className="chip"
+                        onClick={() => answerQuestion(question.field, option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="form-group">
-              <label className="form-label">
-                Throughput <span className="form-sublabel">(Mbps)</span>
-              </label>
-              <input
-                className="form-input"
-                type="number"
-                min={0}
-                step={0.1}
-                value={formData.throughput_mbps}
-                onChange={e => updateField('throughput_mbps', parseFloat(e.target.value) || 0)}
-              />
-              {schema?.feature_ranges.throughput_mbps && (
-                <span className="form-hint">
-                  Trained range: {schema.feature_ranges.throughput_mbps.min.toFixed(1)} – {schema.feature_ranges.throughput_mbps.max.toFixed(1)} Mbps
-                </span>
-              )}
-            </div>
+          )}
+
+          <div className="form-group">
+            <label className="form-label">Telecom Use Case</label>
+            <select
+              className="form-select"
+              value={useCase}
+              onChange={e => setUseCase(e.target.value)}
+            >
+              <option value={NONE_USE_CASE}>None of these — decide from the other parameters</option>
+              {schema?.use_case_values.map(v => (
+                <option key={v} value={v}>{v.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+            {useCase === NONE_USE_CASE && useCaseSuggestion && (
+              <span className="suggestion-hint">
+                The document suggested “{String(useCaseSuggestion).replace(/_/g, ' ')}” — pick it above if that is right.
+              </span>
+            )}
           </div>
 
           <div className="grid-2">
-            <div className="form-group">
-              <label className="form-label">
-                Latency <span className="form-sublabel">(ms)</span>
-              </label>
-              <input
-                className="form-input"
-                type="number"
-                min={0}
-                step={0.1}
-                value={formData.latency_ms}
-                onChange={e => updateField('latency_ms', parseFloat(e.target.value) || 0)}
-              />
-              {schema?.feature_ranges.latency_ms && (
-                <span className="form-hint">
-                  Trained range: {schema.feature_ranges.latency_ms.min.toFixed(1)} – {schema.feature_ranges.latency_ms.max.toFixed(1)} ms
-                </span>
-              )}
-            </div>
-            <div className="form-group">
-              <label className="form-label">
-                Reliability <span className="form-sublabel">(%)</span>
-              </label>
-              <input
-                className="form-input"
-                type="number"
-                min={0}
-                max={100}
-                step={0.01}
-                value={formData.reliability_percent}
-                onChange={e => updateField('reliability_percent', parseFloat(e.target.value) || 0)}
-              />
-            </div>
+            <NumericFieldControl
+              field="throughput_mbps"
+              value={values.throughput_mbps}
+              unknown={unknown.throughput_mbps}
+              suggestion={numericSuggestion(extracted?.fields?.throughput_mbps)}
+              range={schema?.feature_ranges.throughput_mbps}
+              onChange={v => updateField('throughput_mbps', v)}
+              onToggleUnknown={() => toggleUnknown('throughput_mbps')}
+            />
+            <NumericFieldControl
+              field="latency_ms"
+              value={values.latency_ms}
+              unknown={unknown.latency_ms}
+              suggestion={numericSuggestion(extracted?.fields?.latency_ms)}
+              range={schema?.feature_ranges.latency_ms}
+              onChange={v => updateField('latency_ms', v)}
+              onToggleUnknown={() => toggleUnknown('latency_ms')}
+            />
           </div>
 
           <div className="grid-2">
-            <div className="form-group">
-              <label className="form-label">Active Connections</label>
-              <input
-                className="form-input"
-                type="number"
-                min={0}
-                step={1}
-                value={formData.active_connections}
-                onChange={e => updateField('active_connections', parseInt(e.target.value) || 0)}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">
-                Bandwidth Allocated <span className="form-sublabel">(MHz)</span>
-              </label>
-              <input
-                className="form-input"
-                type="number"
-                min={0}
-                step={1}
-                value={formData.bandwidth_allocated_mhz}
-                onChange={e => updateField('bandwidth_allocated_mhz', parseInt(e.target.value) || 0)}
-              />
-            </div>
+            <NumericFieldControl
+              field="reliability_percent"
+              value={values.reliability_percent}
+              unknown={unknown.reliability_percent}
+              suggestion={numericSuggestion(extracted?.fields?.reliability_percent)}
+              range={schema?.feature_ranges.reliability_percent}
+              onChange={v => updateField('reliability_percent', v)}
+              onToggleUnknown={() => toggleUnknown('reliability_percent')}
+            />
+            <NumericFieldControl
+              field="active_connections"
+              value={values.active_connections}
+              unknown={unknown.active_connections}
+              suggestion={numericSuggestion(extracted?.fields?.active_connections)}
+              range={schema?.feature_ranges.active_connections}
+              onChange={v => updateField('active_connections', v)}
+              onToggleUnknown={() => toggleUnknown('active_connections')}
+            />
           </div>
+
+          <NumericFieldControl
+            field="bandwidth_allocated_mhz"
+            value={values.bandwidth_allocated_mhz}
+            unknown={unknown.bandwidth_allocated_mhz}
+            suggestion={numericSuggestion(extracted?.fields?.bandwidth_allocated_mhz)}
+            range={schema?.feature_ranges.bandwidth_allocated_mhz}
+            onChange={v => updateField('bandwidth_allocated_mhz', v)}
+            onToggleUnknown={() => toggleUnknown('bandwidth_allocated_mhz')}
+          />
+
+          {!canPredict && (
+            <p className="form-hint" style={{ marginBottom: 8, color: '#fbbf24' }}>
+              Still needed: {missingFields.map(f => FEATURE_LABELS[f]).join(', ')} — answer above or mark them “Don’t know”.
+            </p>
+          )}
 
           <button
             className="btn btn-solid"
             style={{ width: '100%', height: 46 }}
             onClick={handlePredict}
-            disabled={loading || !formData.use_case}
+            disabled={loading || !canPredict}
           >
             {loading ? (
               <>
@@ -418,14 +936,23 @@ export default function PredictPage() {
               </div>
               <div className="slice-result-pending">Enter details to see the prediction</div>
               <p className="slice-result-pending-sub">
-                Describe your application or fill the network constraints on the left, then run the classifier.
+                Upload a requirements document or fill every network constraint on the left, then run the classifier.
               </p>
             </div>
           )}
 
           {/* Warnings */}
-          {result && result.warnings.length > 0 && (
+          {result && (result.warnings.length > 0 || assumedFields.length > 0) && (
             <div style={{ marginBottom: 16 }}>
+              {assumedFields.length > 0 && (
+                <div className="alert alert-warning" style={{ marginBottom: 8 }}>
+                  <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span>
+                    Marked “Don’t know”, so the dataset average was used:{' '}
+                    {assumedFields.map(({ field, value }) => `${FEATURE_LABELS[field]} ${value.toLocaleString()}`).join(', ')}.
+                  </span>
+                </div>
+              )}
               {result.warnings.map((w, i) => (
                 <div key={i} className="alert alert-warning" style={{ marginBottom: 8 }}>
                   <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
@@ -437,12 +964,9 @@ export default function PredictPage() {
 
           {/* Probability table */}
           <div className="card section-gap">
-            <div className="card-title" style={{ marginBottom: 6, fontSize: 15 }}>
+            <div className="card-title" style={{ marginBottom: 14, fontSize: 15 }}>
               Slice Confidence Probabilities
             </div>
-            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-              Softmax probabilities across all 3GPP slice categories from the Random Forest ensemble.
-            </p>
             {(result
               ? Object.entries(result.class_probabilities).sort(([, a], [, b]) => b - a)
               : Object.keys(SLICE_INFO).map(name => [name, 0] as [string, number])
@@ -460,6 +984,35 @@ export default function PredictPage() {
                 </div>
               </div>
             ))}
+
+            <div className="prob-bar-container">
+              <div className="prob-bar-label">
+                <span className="none-of-these-label">
+                  <AlertTriangle size={12} />
+                  None of these
+                </span>
+                <span>
+                  {result ? `${Math.round((result.feasibility_score ?? 0) * 100)}%` : '—'}
+                </span>
+              </div>
+              <div className="prob-bar-track">
+                <div
+                  className="prob-bar-fill none"
+                  style={{ width: result ? `${(result.feasibility_score ?? 0) * 100}%` : 0 }}
+                />
+              </div>
+              {result && (result.feasibility_reasons?.length ?? 0) > 0 && (
+                <ul className="none-of-these-reasons">
+                  {result.feasibility_reasons?.map((reason, i) => (
+                    <li key={i}>{reason}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <p className="form-hint" style={{ marginTop: 10 }}>
+              “None of these” is a plausibility check on the requirements themselves, not a fourth model class.
+            </p>
           </div>
 
           {/* Key features table — visible before and after prediction */}
@@ -474,11 +1027,14 @@ export default function PredictPage() {
             </p>
             {Object.entries(FEATURE_LABELS).map(([field, label]) => {
               const importance = result?.feature_importance?.[field]
+              const current = field === 'use_case'
+                ? (useCase === NONE_USE_CASE ? '' : useCase)
+                : (values as unknown as Record<string, unknown>)[field]
               return (
                 <div key={field} className="feature-row">
                   <span className="feature-row-label">{label}</span>
                   <span className="feature-row-value">
-                    {formatFeatureValue(field, (formData as unknown as Record<string, unknown>)[field])}
+                    {formatFeatureValue(field, current, field !== 'use_case' && unknown[field as NumericField])}
                   </span>
                   <span className="feature-row-weight">
                     {importance !== undefined ? `${(importance * 100).toFixed(1)}%` : '—'}

@@ -1,8 +1,11 @@
+// Empty base = same origin. In dev, Vite proxies /api to the FastAPI server,
+// so the app also works through forwarded/preview URLs.
 const API_BASE = import.meta.env.VITE_API_URL !== undefined
   ? import.meta.env.VITE_API_URL
-  : (import.meta.env.DEV ? 'http://localhost:8000' : '');
+  : '';
 
 export interface PredictionRequest {
+  // Empty string omits the use case: the backend then averages over all of them.
   use_case: string;
   throughput_mbps: number;
   latency_ms: number;
@@ -19,6 +22,8 @@ export interface PredictionResponse {
   warnings: string[];
   feature_values: Record<string, any>;
   feature_importance: Record<string, number>;
+  feasibility_score?: number;
+  feasibility_reasons?: string[];
 }
 
 export interface WhatIfResponse {
@@ -29,10 +34,45 @@ export interface WhatIfResponse {
   explanation: string;
 }
 
+export interface ExtractedField {
+  value: string | number | null;
+  confidence: number;
+  evidence: string;
+  note: string;
+  suggestion?: string | number | null;
+}
+
+export interface ExtractionQuestion {
+  field: string;
+  question: string;
+  options: { label: string; value: string | number | null }[];
+}
+
 export interface ExtractionResponse {
   success: boolean;
-  extracted: any;
-  error?: string;
+  extracted: Record<string, any>;
+  fields: Record<string, ExtractedField>;
+  ambiguous: ExtractionQuestion[];
+  missing_fields: string[];
+  suggestions: Record<string, any>;
+  app_name?: string;
+  app_description?: string;
+  text_preview?: string;
+  source?: string;
+  llm_used?: boolean;
+  error?: string | null;
+}
+
+export interface RequirementSample {
+  id: string;
+  filename: string;
+  title: string;
+  description: string;
+}
+
+export interface RequirementSampleDetail extends RequirementSample {
+  text: string;
+  download_url: string;
 }
 
 export interface ModelInfo {
@@ -74,9 +114,10 @@ export interface FeatureSchema {
 }
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const isFormData = options?.body instanceof FormData;
   const res = await fetch(`${API_BASE}${endpoint}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers: isFormData ? options?.headers : { 'Content-Type': 'application/json', ...options?.headers },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -103,6 +144,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ description }),
     }),
+
+  extractRequirementsFile: (file: File) => {
+    const body = new FormData();
+    body.append('file', file);
+    return fetchAPI<ExtractionResponse>('/api/extract-requirements-file', {
+      method: 'POST',
+      body,
+    });
+  },
+
+  listSamples: () => fetchAPI<{ samples: RequirementSample[] }>('/api/sample-requirements'),
+
+  getSample: (id: string) => fetchAPI<RequirementSampleDetail>(`/api/sample-requirements/${id}`),
+
+  sampleDownloadUrl: (id: string) => `${API_BASE}/api/sample-requirements/${id}/download`,
 
   whatIf: (original: PredictionRequest, modified: PredictionRequest) =>
     fetchAPI<WhatIfResponse>('/api/what-if', {

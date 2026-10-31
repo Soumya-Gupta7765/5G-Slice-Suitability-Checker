@@ -23,9 +23,12 @@ import joblib
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+
+import requirements_extractor as rq
 
 load_dotenv()
 
@@ -96,7 +99,10 @@ async def startup():
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
 class PredictionRequest(BaseModel):
-    use_case: str = Field(..., description="Application use case category")
+    use_case: Optional[str] = Field(
+        None,
+        description="Application use case category. Omit or pass 'none' to predict from the other parameters only.",
+    )
     throughput_mbps: float = Field(..., ge=0, description="Required throughput in Mbps")
     latency_ms: float = Field(..., ge=0, description="Required latency in milliseconds")
     reliability_percent: float = Field(..., ge=0, le=100, description="Reliability target (%)")
@@ -175,6 +181,105 @@ async def call_qualcomm_llm(messages: list[dict], temperature: float = 0.3) -> O
     except Exception as e:
         print(f"LLM call failed ({api_url}, {model}): {e}")
         return None
+
+
+# Use case values that mean "leave the use case out of the prediction".
+NO_USE_CASE_VALUES = {"", "none", "none_of_these", "none of these", "__none__", "not_applicable", "n/a"}
+
+
+def has_use_case(value: Optional[str]) -> bool:
+    return bool(value) and str(value).strip().lower() not in NO_USE_CASE_VALUES
+
+
+def predict_distribution(numeric: dict, use_case: Optional[str]):
+    """Predict without a use case by averaging over every use case in training.
+
+    This keeps the model intact while genuinely dropping the use case from the
+    request, instead of substituting an arbitrary category.
+    """
+    if pipeline is None or label_encoder is None:
+        raise HTTPException(status_code=503, detail="Model not loaded. Run train_model.py first.")
+
+    if has_use_case(use_case):
+        frame = pd.DataFrame([{**numeric, "use_case": use_case}])
+        probabilities_array = pipeline.predict_proba(frame)[0]
+    else:
+        options = (metrics or {}).get("use_case_values", [])
+        if not options:
+            raise HTTPException(
+                status_code=400,
+                detail="No use case was supplied and the model has no use case list to average over.",
+            )
+        frame = pd.DataFrame([{**numeric, "use_case": uc} for uc in options])
+        probabilities_array = pipeline.predict_proba(frame).mean(axis=0)
+
+    class_names = [normalize_slice_name(cls) for cls in label_encoder.classes_]
+    probabilities = {
+        cls: round(float(p), 4) for cls, p in zip(class_names, probabilities_array)
+    }
+    predicted_slice = class_names[int(np.argmax(probabilities_array))]
+    return predicted_slice, probabilities
+
+
+def assess_feasibility(feature_values: dict) -> tuple[float, list[str]]:
+    """Heuristic "none of these" risk for a requirement profile.
+
+    This is NOT a model class. It flags combinations that no single 3GPP slice
+    profile can serve well (and inputs far outside the training distribution),
+    which a classifier trained on synthetic labels will happily classify anyway.
+    """
+    reasons: list[str] = []
+    score = 0.0
+
+    throughput = float(feature_values["throughput_mbps"])
+    latency = float(feature_values["latency_ms"])
+    reliability = float(feature_values["reliability_percent"])
+    connections = float(feature_values["active_connections"])
+    bandwidth = float(feature_values["bandwidth_allocated_mhz"])
+
+    if latency <= 10 and throughput >= 500:
+        score += 0.35
+        reasons.append(
+            f"≤{latency:g} ms latency together with {throughput:,.0f} Mbps is hard to hold on one slice: "
+            "URLLC targets latency, eMBB targets throughput."
+        )
+    if latency <= 10 and connections >= 10_000:
+        score += 0.3
+        reasons.append(
+            f"{connections:,.0f} concurrent connections at ≤{latency:g} ms exceeds a typical mMTC density/latency profile."
+        )
+    if reliability >= 99.999 and throughput >= 1_000:
+        score += 0.2
+        reasons.append(
+            f"{reliability:g}% reliability with {throughput:,.0f} Mbps is beyond standard URLLC/eMBB envelope values."
+        )
+    if throughput >= 1_000 and connections >= 100_000:
+        score += 0.25
+        reasons.append(
+            "Very high throughput for a very large device fleet is a capacity profile operators usually split across slices."
+        )
+    if latency <= 1 or bandwidth >= 400:
+        score += 0.15
+        reasons.append("One requirement sits at an extreme edge of what commercial 5G deployments offer.")
+
+    numeric_ranges = (metrics or {}).get("feature_ranges", {})
+    z_scores = []
+    for name in ("throughput_mbps", "latency_ms", "reliability_percent", "active_connections", "bandwidth_allocated_mhz"):
+        bounds = numeric_ranges.get(name) or {}
+        std = bounds.get("std") or 0
+        if std > 0:
+            z_scores.append(abs(float(feature_values[name]) - bounds["mean"]) / std)
+    if z_scores:
+        mean_z = sum(z_scores) / len(z_scores)
+        if mean_z > 1.5:
+            score += min(0.45, (mean_z - 1.5) / 5.0)
+        if mean_z > 3:
+            reasons.append(
+                "These values sit far outside the range the model was trained on, so its answer is extrapolation."
+            )
+
+    # Capped below 1.0: this is a plausibility hint, not a verdict.
+    return round(min(0.95, score), 3), reasons
 
 
 def generate_template_explanation(predicted_slice: str, probabilities: dict, feature_values: dict, feature_importance: dict, app_name: str = None) -> str:
@@ -344,25 +449,37 @@ async def predict(request: PredictionRequest):
                 )
 
     # Check use_case validity
-    if metrics and "use_case_values" in metrics:
-        if request.use_case not in metrics["use_case_values"]:
-            warnings_list.append(
-                f"Use case '{request.use_case}' was not seen during training. "
-                f"Known values: {metrics['use_case_values']}. "
-                f"Prediction reliability may be reduced."
-            )
+    if has_use_case(request.use_case):
+        if metrics and "use_case_values" in metrics:
+            if request.use_case not in metrics["use_case_values"]:
+                warnings_list.append(
+                    f"Use case '{request.use_case}' was not seen during training. "
+                    f"Known values: {metrics['use_case_values']}. "
+                    f"Prediction reliability may be reduced."
+                )
+    else:
+        warnings_list.append(
+            "No use case selected: the prediction averages the model over all use cases, "
+            "so only the other parameters decide the result."
+        )
 
     # Predict
+    numeric_values = {
+        "throughput_mbps": request.throughput_mbps,
+        "latency_ms": request.latency_ms,
+        "reliability_percent": request.reliability_percent,
+        "active_connections": request.active_connections,
+        "bandwidth_allocated_mhz": request.bandwidth_allocated_mhz,
+    }
     try:
-        predicted_class_idx = pipeline.predict(input_data)[0]
-        predicted_proba = pipeline.predict_proba(input_data)[0]
+        predicted_slice, probabilities = predict_distribution(numeric_values, request.use_case)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
 
-    raw_slice = label_encoder.inverse_transform([predicted_class_idx])[0]
-    predicted_slice = normalize_slice_name(raw_slice)
-    class_names = [normalize_slice_name(cls) for cls in label_encoder.classes_]
-    probabilities = {cls: round(float(p), 4) for cls, p in zip(class_names, predicted_proba)}
+    class_names = list(probabilities.keys())
+    predicted_proba = np.array([probabilities[c] for c in class_names])
 
     # Check model confidence
     max_prob = max(predicted_proba)
@@ -374,13 +491,16 @@ async def predict(request: PredictionRequest):
 
     # Feature values for explanation
     feature_values = {
-        "use_case": request.use_case,
+        "use_case": request.use_case if has_use_case(request.use_case) else "none of these",
         "throughput_mbps": request.throughput_mbps,
         "latency_ms": request.latency_ms,
         "reliability_percent": request.reliability_percent,
         "active_connections": request.active_connections,
         "bandwidth_allocated_mhz": request.bandwidth_allocated_mhz,
     }
+
+    # Heuristic "none of these" risk (not a model class)
+    feasibility_score, feasibility_reasons = assess_feasibility(feature_values)
 
     feature_importance = metrics.get("feature_importance", {}) if metrics else {}
 
@@ -397,7 +517,7 @@ Model Confidence Scores: {json.dumps(probabilities)}
 Application Name: {request.app_name or 'Not specified'}
 Application Description: {request.app_description or 'Not specified'}
 Requirements:
-- Use Case: {request.use_case}
+- Use Case: {request.use_case if has_use_case(request.use_case) else 'not specified (averaged over all use cases)'}
 - Throughput: {request.throughput_mbps} Mbps
 - Latency: {request.latency_ms} ms
 - Reliability: {request.reliability_percent}%
@@ -438,157 +558,103 @@ Please explain this prediction in plain English following these rules:
         "warnings": warnings_list,
         "feature_values": feature_values,
         "feature_importance": feature_importance,
+        "feasibility_score": feasibility_score,
+        "feasibility_reasons": feasibility_reasons,
     }
+
+
+async def run_requirements_extraction(text: str, source: str = "text") -> dict:
+    """Extract parameters from requirement text using the LLM plus rule-based fallbacks.
+
+    Values the extractor is not confident about are returned as `null` with a
+    follow-up question, so the UI can ask the user instead of guessing.
+    """
+    use_case_values = metrics.get("use_case_values", []) if metrics else []
+    heuristic = rq.heuristic_extract(text)
+
+    llm_result = None
+    api_key, _, _ = get_llm_config()
+    if api_key:
+        raw = await call_qualcomm_llm(
+            [
+                {"role": "system", "content": "You extract structured network requirements and reply with JSON only."},
+                {"role": "user", "content": rq.build_llm_prompt(text, use_case_values)},
+            ],
+            temperature=0.1,
+        )
+        if raw:
+            llm_result = rq.parse_llm_output(raw, use_case_values)
+
+    result = rq.merge_extractions(llm_result, heuristic, use_case_values)
+    found_something = bool(result["extracted"]) or llm_result is not None
+    result.update(
+        {
+            "success": found_something,
+            "llm_used": llm_result is not None,
+            "source": source,
+            "text_preview": rq.text_preview(text),
+            "error": None
+            if found_something
+            else "No parameters could be read from this document. Add more detail or fill the form manually.",
+        }
+    )
+    return result
 
 
 @api_router.post("/extract-requirements")
 async def extract_requirements(request: NLPExtractionRequest):
-    """Use LLM to extract structured requirements from natural language."""
-    api_key, _, _ = get_llm_config()
-    if not api_key:
-        return {
-            "success": False,
-            "error": "LLM service not configured. Please enter requirements manually.",
-            "extracted": None,
-        }
+    """Extract structured requirements from a natural-language description."""
+    return await run_requirements_extraction(request.description, source="text")
 
-    # Get valid use cases
-    use_case_values = metrics.get("use_case_values", []) if metrics else []
 
-    extraction_prompt = f"""Analyze this 5G application description:
-"{request.description}"
+@api_router.post("/extract-requirements-file")
+async def extract_requirements_file(file: UploadFile = File(...)):
+    """Extract structured requirements from an uploaded .txt, .md or .pdf document."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    if len(data) > rq.MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File is larger than 5 MB. Upload a shorter document.")
 
-Identify the appropriate network parameters. Choose the closest use_case from:
-{', '.join(use_case_values)}
+    try:
+        text = rq.extract_text(file.filename or "", data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-Provide the extracted values line by line:
-use_case: (one of the choices above)
-throughput_mbps: (estimated number in Mbps)
-latency_ms: (estimated number in ms)
-reliability_percent: (estimated percentage, e.g. 99.99)
-active_connections: (estimated integer)
-bandwidth_allocated_mhz: (estimated integer)
-app_name: (short title for the app)
-app_description: (one sentence summary)
-confidence_notes: (notes on estimates)"""
+    if len(text) < 10:
+        raise HTTPException(status_code=400, detail="The document does not contain enough text to extract requirements.")
 
-    result = await call_qualcomm_llm([
-        {"role": "user", "content": extraction_prompt},
-    ])
+    return await run_requirements_extraction(text, source=file.filename or "upload")
 
-    if result:
-        import re
-        cleaned = result.strip()
-        extracted = {}
 
-        # 1. Try parsing JSON if present
-        json_match = re.search(r"\{[\s\S]*\}", cleaned)
-        if json_match:
-            try:
-                extracted = json.loads(json_match.group(0))
-            except Exception:
-                pass
+@api_router.get("/sample-requirements")
+async def sample_requirements():
+    """List the bundled example requirement documents."""
+    return {"samples": rq.list_samples()}
 
-        # 2. Extract use_case by matching against known values
-        detected_uc = None
-        for uc in use_case_values:
-            if uc in cleaned.lower() or uc.replace("_", " ") in cleaned.lower():
-                detected_uc = uc
-                break
-        if not detected_uc:
-            # Domain keyword heuristics
-            text_lower = (request.description + " " + cleaned).lower()
-            if any(w in text_lower for w in ["surgery", "hospital", "patient", "ambulance", "vital", "medical", "doctor"]):
-                detected_uc = "remote_surgery" if "remote_surgery" in use_case_values else "iot_sensors"
-            elif any(w in text_lower for w in ["vehicle", "car", "driving", "traffic", "autonomous", "drone", "lidar"]):
-                detected_uc = "autonomous_vehicles"
-            elif any(w in text_lower for w in ["vr", "virtual", "headset", "ar", "augmented"]):
-                detected_uc = "ar_vr"
-            elif any(w in text_lower for w in ["game", "gaming", "playstation", "xbox"]):
-                detected_uc = "cloud_gaming"
-            elif any(w in text_lower for w in ["stream", "streaming", "video", "youtube", "netflix"]):
-                detected_uc = "video_streaming"
-            elif any(w in text_lower for w in ["sensor", "meter", "smart parking", "parking", "farm", "crop", "soil", "agriculture"]):
-                detected_uc = "iot_sensors"
-            elif any(w in text_lower for w in ["factory", "robot", "industrial", "scada", "assembly", "automation"]):
-                detected_uc = "industrial_automation"
-            elif any(w in text_lower for w in ["grid", "energy", "power", "solar"]):
-                detected_uc = "smart_grid"
-            elif any(w in text_lower for w in ["city", "street", "lamp"]):
-                detected_uc = "smart_city"
-            elif any(w in text_lower for w in ["pollution", "air", "water", "environment"]):
-                detected_uc = "environmental_monitoring"
-            elif any(w in text_lower for w in ["4k", "8k", "hd"]):
-                detected_uc = "4k_video"
-            else:
-                detected_uc = use_case_values[0] if use_case_values else "iot_sensors"
 
-        extracted["use_case"] = detected_uc
+@api_router.get("/sample-requirements/{sample_id}")
+async def sample_requirements_detail(sample_id: str):
+    """Return the extracted text of a bundled example document."""
+    sample = rq.read_sample(sample_id)
+    if sample is None:
+        raise HTTPException(status_code=404, detail="Sample document not found.")
+    return sample
 
-        # 3. Extract throughput
-        if "throughput_mbps" not in extracted or not extracted["throughput_mbps"]:
-            m_tp = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:mbps|mb/s)", cleaned, re.I)
-            if not m_tp:
-                m_tp = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:gbps|gb/s)", cleaned, re.I)
-                extracted["throughput_mbps"] = float(m_tp.group(1)) * 1000.0 if m_tp else None
-            else:
-                extracted["throughput_mbps"] = float(m_tp.group(1))
 
-            if not extracted.get("throughput_mbps"):
-                m_tp_num = re.search(r"(?:throughput|bandwidth)\D*([0-9]+(?:\.[0-9]+)?)", cleaned, re.I)
-                extracted["throughput_mbps"] = float(m_tp_num.group(1)) if m_tp_num else 50.0
-
-        # 4. Extract latency
-        if "latency_ms" not in extracted or not extracted["latency_ms"]:
-            m_lat = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*ms", cleaned, re.I)
-            if not m_lat:
-                m_lat = re.search(r"(?:latency|lag|delay)\D*([0-9]+(?:\.[0-9]+)?)", cleaned, re.I)
-            extracted["latency_ms"] = float(m_lat.group(1)) if m_lat else 15.0
-
-        # 5. Extract reliability
-        if "reliability_percent" not in extracted or not extracted["reliability_percent"]:
-            m_rel = re.search(r"([0-9]{2}(?:\.[0-9]+)?)\s*%", cleaned)
-            if not m_rel:
-                m_rel = re.search(r"(?:reliability)\D*([0-9]{2}(?:\.[0-9]+)?)", cleaned, re.I)
-            extracted["reliability_percent"] = min(99.999, max(90.0, float(m_rel.group(1)))) if m_rel else 99.9
-
-        # 6. Extract active connections
-        if "active_connections" not in extracted or not extracted["active_connections"]:
-            m_conn = re.search(r"(?:active_connections|connections|users|devices|nodes)\D*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)", cleaned, re.I)
-            if m_conn:
-                val = m_conn.group(1).replace(",", "")
-                extracted["active_connections"] = min(1000, max(1, int(float(val))))
-            else:
-                extracted["active_connections"] = 100
-
-        # 7. Extract bandwidth allocated (MHz)
-        if "bandwidth_allocated_mhz" not in extracted or not extracted["bandwidth_allocated_mhz"]:
-            m_bw = re.search(r"([0-9]+)\s*mhz", cleaned, re.I)
-            if not m_bw:
-                m_bw = re.search(r"(?:bandwidth)\D*([0-9]+)", cleaned, re.I)
-            extracted["bandwidth_allocated_mhz"] = min(100, max(20, int(m_bw.group(1)))) if m_bw else 50
-
-        # 8. App Name & Description
-        if not extracted.get("app_name"):
-            m_name = re.search(r"(?:app_name|app name)\**\s*[:=]\s*([^\n\r]+)", cleaned, re.I)
-            extracted["app_name"] = m_name.group(1).strip().strip("*\"' ") if m_name else "5G Application"
-
-        if not extracted.get("app_description"):
-            extracted["app_description"] = request.description
-
-        extracted["confidence_notes"] = "Parameters extracted and normalized from natural-language description using Qualcomm AI reasoning."
-
-        return {
-            "success": True,
-            "extracted": extracted,
-            "error": None,
-        }
-
-    return {
-        "success": False,
-        "error": "LLM service did not respond. Please enter requirements manually.",
-        "extracted": None,
-    }
+@api_router.get("/sample-requirements/{sample_id}/download")
+async def sample_requirements_download(sample_id: str):
+    """Download a bundled example document as a file."""
+    sample = next((s for s in rq.list_samples() if s["id"] == sample_id), None)
+    if sample is None:
+        raise HTTPException(status_code=404, detail="Sample document not found.")
+    path = rq.SAMPLES_DIR / sample["filename"]
+    media_type = {
+        ".txt": "text/plain",
+        ".md": "text/markdown",
+        ".pdf": "application/pdf",
+    }.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media_type, filename=sample["filename"])
 
 
 @api_router.post("/what-if")
@@ -598,21 +664,14 @@ async def what_if(request: WhatIfRequest):
         raise HTTPException(status_code=503, detail="Model not loaded.")
 
     async def run_prediction(req: PredictionRequest):
-        input_data = pd.DataFrame([{
-            "use_case": req.use_case,
+        numeric_values = {
             "throughput_mbps": req.throughput_mbps,
             "latency_ms": req.latency_ms,
             "reliability_percent": req.reliability_percent,
             "active_connections": req.active_connections,
             "bandwidth_allocated_mhz": req.bandwidth_allocated_mhz,
-        }])
-        predicted_class_idx = pipeline.predict(input_data)[0]
-        predicted_proba = pipeline.predict_proba(input_data)[0]
-        raw_slice = label_encoder.inverse_transform([predicted_class_idx])[0]
-        predicted_slice = normalize_slice_name(raw_slice)
-        class_names = [normalize_slice_name(cls) for cls in label_encoder.classes_]
-        probabilities = {cls: round(float(p), 4) for cls, p in zip(class_names, predicted_proba)}
-        return predicted_slice, probabilities
+        }
+        return predict_distribution(numeric_values, req.use_case)
 
     original_slice, original_proba = await run_prediction(request.original)
     modified_slice, modified_proba = await run_prediction(request.modified)

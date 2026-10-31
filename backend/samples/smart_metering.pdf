@@ -1,0 +1,59 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 1123 >>
+stream
+BT
+/F1 11 Tf
+16 TL
+54 740 Td
+(5G Requirements - Smart Metering Rollout) Tj T*
+() Tj T*
+(Programme: Municipal smart electricity meters, 3 districts) Tj T*
+(Owner: City Utilities Department) Tj T*
+() Tj T*
+(1. Purpose) Tj T*
+(Replace 40,000 electromechanical meters with connected smart meters that) Tj T*
+(report consumption every 15 minutes to the utility head-end system.) Tj T*
+() Tj T*
+(2. Reported needs) Tj T*
+(- Each meter sends a small reading every 15 minutes.) Tj T*
+(- Devices are battery assisted and must last 8 years in the field.) Tj T*
+(- The rollout covers dense apartment blocks and low-density suburbs.) Tj T*
+(- Connections: 40,000 meters active on the municipal network.) Tj T*
+() Tj T*
+(3. Not yet specified) Tj T*
+(The procurement team has not fixed the latency budget, the reliability) Tj T*
+(target, the per-meter uplink rate or the spectrum allocation. These must) Tj T*
+(be agreed with the network operator before the slice is provisioned.) Tj T*
+() Tj T*
+(4. Notes) Tj T*
+(Peak reporting windows are 06:00-09:00 and 18:00-21:00. A missed reading) Tj T*
+(can be retried later in the day.) Tj T*
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1486
+%%EOF
